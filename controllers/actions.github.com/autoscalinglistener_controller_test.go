@@ -549,6 +549,58 @@ var _ = Describe("Test AutoScalingListener controller", func() {
 				autoscalingListenerTestInterval,
 			).Should(BeEquivalentTo(oldSecretUID), "Config secret should persist (not be re-created)")
 		})
+
+		It("It should propagate rotated GitHub credentials into the listener config secret", func() {
+			secret := new(corev1.Secret)
+			Eventually(
+				func() error {
+					return k8sClient.Get(ctx, client.ObjectKey{Name: scaleSetListenerConfigName(autoscalingListener), Namespace: autoscalingListener.Namespace}, secret)
+				},
+				autoscalingListenerTestTimeout,
+				autoscalingListenerTestInterval,
+			).Should(Succeed(), "Config secret should be created")
+
+			var originalConfig ghalistenerconfig.Config
+			err := json.Unmarshal(secret.Data["config.json"], &originalConfig)
+			Expect(err).NotTo(HaveOccurred(), "failed to parse listener configuration file")
+			Expect(originalConfig.Token).To(Equal(defaultGitHubToken))
+			oldHash := secret.Annotations[annotationKeyIntegrityHash]
+
+			// Rotate the GitHub credentials. There is intentionally no watch on the
+			// credentials secret, so reconciliation is triggered below by mutating the listener.
+			const rotatedGitHubToken = "gh_token_rotated"
+			currentCredentials := new(corev1.Secret)
+			err = k8sClient.Get(ctx, client.ObjectKey{Name: configSecret.Name, Namespace: configSecret.Namespace}, currentCredentials)
+			Expect(err).NotTo(HaveOccurred(), "failed to get credentials secret")
+			updatedCredentials := currentCredentials.DeepCopy()
+			updatedCredentials.Data["github_token"] = []byte(rotatedGitHubToken)
+			err = k8sClient.Update(ctx, updatedCredentials)
+			Expect(err).NotTo(HaveOccurred(), "failed to update credentials secret")
+
+			current := new(v1alpha1.AutoscalingListener)
+			err = k8sClient.Get(ctx, client.ObjectKey{Name: autoscalingListener.Name, Namespace: autoscalingListener.Namespace}, current)
+			Expect(err).NotTo(HaveOccurred(), "failed to get AutoScalingListener")
+			updatedListener := current.DeepCopy()
+			updatedListener.Labels["arc.test/listener-label"] = "rotated"
+			err = k8sClient.Patch(ctx, updatedListener, client.MergeFrom(current))
+			Expect(err).NotTo(HaveOccurred(), "failed to patch AutoScalingListener to trigger reconcile")
+
+			Eventually(
+				func(g Gomega) {
+					updatedSecret := new(corev1.Secret)
+					err := k8sClient.Get(ctx, client.ObjectKey{Name: scaleSetListenerConfigName(autoscalingListener), Namespace: autoscalingListener.Namespace}, updatedSecret)
+					g.Expect(err).NotTo(HaveOccurred(), "failed to get config Secret")
+
+					var rotatedConfig ghalistenerconfig.Config
+					err = json.Unmarshal(updatedSecret.Data["config.json"], &rotatedConfig)
+					g.Expect(err).NotTo(HaveOccurred(), "failed to parse listener configuration file")
+					g.Expect(rotatedConfig.Token).To(Equal(rotatedGitHubToken), "config secret should embed the rotated token")
+					g.Expect(updatedSecret.Annotations[annotationKeyIntegrityHash]).NotTo(Equal(oldHash), "integrity hash annotation should change")
+				},
+				autoscalingListenerTestTimeout,
+				autoscalingListenerTestInterval,
+			).Should(Succeed())
+		})
 	})
 })
 
