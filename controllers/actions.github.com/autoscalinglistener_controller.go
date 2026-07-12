@@ -299,7 +299,18 @@ func (r *AutoscalingListenerReconciler) Reconcile(ctx context.Context, req ctrl.
 		)
 		switch {
 		case err == nil:
-			desiredListenerProxy, err := r.newAutoscalingListenerProxySecret(&autoscalingListener, proxySecret.Data)
+			proxySecretData, err := autoscalingListener.Spec.Proxy.ToSecretData(func(s string) (*corev1.Secret, error) {
+				var secret corev1.Secret
+				err := r.Get(ctx, types.NamespacedName{Name: s, Namespace: autoscalingListener.Spec.AutoscalingRunnerSetNamespace}, &secret)
+				if err != nil {
+					return nil, fmt.Errorf("failed to get secret %s: %w", s, err)
+				}
+				return &secret, nil
+			})
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to convert proxy config to secret data: %w", err)
+			}
+			desiredListenerProxy, err := r.newAutoscalingListenerProxySecret(&autoscalingListener, proxySecretData)
 			if err != nil {
 				log.Error(err, "Failed to build desired listener proxy secret")
 				return ctrl.Result{}, err
