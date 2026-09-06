@@ -18,14 +18,6 @@ func WithGetRunnerScaleSet(result *scaleset.RunnerScaleSet, err error) ClientOpt
 	}
 }
 
-// WithGetRunnerScaleSetByID configures the result of GetRunnerScaleSetByID
-func WithGetRunnerScaleSetByID(result *scaleset.RunnerScaleSet, err error) ClientOption {
-	return func(c *Client) {
-		c.getRunnerScaleSetByIDResult.RunnerScaleSet = result
-		c.getRunnerScaleSetByIDResult.err = err
-	}
-}
-
 // WithGetRunnerScaleSetByIDFunc configures a function to handle GetRunnerScaleSetByID calls dynamically
 func WithGetRunnerScaleSetByIDFunc(fn func(context.Context, int) (*scaleset.RunnerScaleSet, error)) ClientOption {
 	return func(c *Client) {
@@ -86,26 +78,11 @@ func WithGenerateJitRunnerConfig(result *scaleset.RunnerScaleSetJitRunnerConfig,
 	}
 }
 
-// WithGetRunnerByName configures the result of GetRunnerByName
-func WithGetRunnerByName(result *scaleset.RunnerReference, err error) ClientOption {
-	return func(c *Client) {
-		c.getRunnerByNameResult.RunnerReference = result
-		c.getRunnerByNameResult.err = err
-	}
-}
-
 // WithGetRunner configures the result of GetRunner
 func WithGetRunner(result *scaleset.RunnerReference, err error) ClientOption {
 	return func(c *Client) {
 		c.getRunnerResult.RunnerReference = result
 		c.getRunnerResult.err = err
-	}
-}
-
-// WithSystemInfo configures the SystemInfo
-func WithSystemInfo(info scaleset.SystemInfo) ClientOption {
-	return func(c *Client) {
-		c.systemInfo = info
 	}
 }
 

@@ -16,13 +16,6 @@ func WithClient(c multiclient.Client) MultiClientOption {
 	}
 }
 
-// WithGetClientForError configures an error that GetClientFor will return
-func WithGetClientForError(err error) MultiClientOption {
-	return func(mc *MultiClient) {
-		mc.getClientForErr = err
-	}
-}
-
 // MultiClient implements multiclient.MultiClient interface for testing
 type MultiClient struct {
 	client          multiclient.Client
