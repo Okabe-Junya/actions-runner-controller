@@ -1,79 +1,44 @@
 {{- $resourceMeta := default (dict) .Values.resourceMeta }}
-{{- $hasCustomResourceMeta := (and .Values.resourceMeta .Values.resourceMeta.autoscalingRunnerSet) }}
-apiVersion: actions.github.com/v1alpha1
-kind: AutoscalingRunnerSet
-metadata:
-  {{- if or (not (include "gha-runner-scale-set.scale-set-name" .)) (gt (len (include "gha-runner-scale-set.scale-set-name" .)) 45) }}
-  {{ fail "Name must have up to 45 characters" }}
-  {{- end }}
-  {{- if gt (len (include "gha-runner-scale-set.namespace" .)) 63 }}
-  {{ fail "Namespace must have up to 63 characters" }}
-  {{- end }}
-  name: {{ include "gha-runner-scale-set.scale-set-name" . | replace "_" "-" }}
-  namespace: {{ include "gha-runner-scale-set.namespace" . }}
-  labels:
-    {{- $base := include "gha-runner-scale-set.labels" . | fromYaml }}
-    {{- $extra := dict "app.kubernetes.io/component" "" }}
-    {{- $reserved := merge $base $extra }}
-    {{- with .Values.labels }}
-    {{- range $k, $v := . }}
-    {{- if not (or (hasKey $reserved $k) (hasPrefix "actions.github.com/" $k)) }}
-    {{ $k }}: {{ $v | quote }}
-    {{- end }}
-    {{- end }}
-    {{- end }}
-    {{- if $hasCustomResourceMeta }}
-    {{- with .Values.resourceMeta.autoscalingRunnerSet.labels }}
-    {{- range $k, $v := . }}
-    {{- if not (or (hasKey $reserved $k) (hasPrefix "actions.github.com/" $k)) }}
-    {{ $k }}: {{ $v | quote }}
-    {{- end }}
-    {{- end }}
-    {{- end }}
-    {{- end }}
-    app.kubernetes.io/component: "autoscaling-runner-set"
-    {{- include "gha-runner-scale-set.labels" . | nindent 4 }}
-  annotations:
-    {{- with .Values.annotations }}
-    {{- range $k, $v := . }}
-    {{- if not (or (hasPrefix "actions.github.com/cleanup-" $k) (eq $k "actions.github.com/values-hash")) }}
-    {{ $k }}: {{ $v | quote }}
-    {{- end }}
-    {{- end }}
-    {{- end }}
-    {{- if $hasCustomResourceMeta }}
-    {{- with .Values.resourceMeta.autoscalingRunnerSet.annotations }}
-    {{- range $k, $v := . }}
-    {{- if not (or (hasPrefix "actions.github.com/cleanup-" $k) (eq $k "actions.github.com/values-hash")) }}
-    {{ $k }}: {{ $v | quote }}
-    {{- end }}
-    {{- end }}
-    {{- end }}
-    {{- end }}
-    actions.github.com/values-hash: {{ toJson .Values | sha256sum | trunc 63 }}
-    {{- $containerMode := .Values.containerMode }}
-    {{- if not (kindIs "string" .Values.githubConfigSecret) }}
-    actions.github.com/cleanup-github-secret-name: {{ include "gha-runner-scale-set.githubsecret" . }}
-    {{- end }}
-    actions.github.com/cleanup-manager-role-binding: {{ include "gha-runner-scale-set.managerRoleBindingName" . }}
-    actions.github.com/cleanup-manager-role-name: {{ include "gha-runner-scale-set.managerRoleName" . }}
-    {{- if and (or (eq $containerMode.type "kubernetes") (eq $containerMode.type "kubernetes-novolume")) (not .Values.template.spec.serviceAccountName) }}
-    actions.github.com/cleanup-kubernetes-mode-role-binding-name: {{ include "gha-runner-scale-set.kubeModeRoleBindingName" . }}
-    actions.github.com/cleanup-kubernetes-mode-role-name: {{ include "gha-runner-scale-set.kubeModeRoleName" . }}
-    actions.github.com/cleanup-kubernetes-mode-service-account-name: {{ include "gha-runner-scale-set.kubeModeServiceAccountName" . }}
-    {{- end }}
-    {{- if and (ne $containerMode.type "kubernetes") (ne $containerMode.type "kubernetes-novolume") (not .Values.template.spec.serviceAccountName) }}
-    actions.github.com/cleanup-no-permission-service-account-name: {{ include "gha-runner-scale-set.noPermissionServiceAccountName" . }}
-    {{- end }}
-
-spec:
-  githubConfigUrl: {{ required ".Values.githubConfigUrl is required" (trimSuffix "/" .Values.githubConfigUrl) }}
-  githubConfigSecret: {{ include "gha-runner-scale-set.githubsecret" . }}
+{{- $arsMeta := and .Values.resourceMeta .Values.resourceMeta.autoscalingRunnerSet }}
+{{- $containerMode := .Values.containerMode }}
+{{- $tlsConfig := (default (dict) .Values.githubServerTLS) }}
+{{- if or (not (include "gha-runner-scale-set.scale-set-name" .)) (gt (len (include "gha-runner-scale-set.scale-set-name" .)) 45) }}
+{{ fail "Name must have up to 45 characters" }}
+{{- end }}
+{{- if gt (len (include "gha-runner-scale-set.namespace" .)) 63 }}
+{{ fail "Namespace must have up to 63 characters" }}
+{{- end }}
+{{- $annotations := include "gha-runner-scale-set.effective-annotations" (dict "ctx" . "meta" $arsMeta "strict" true) | fromJson }}
+{{- $_ := set $annotations "actions.github.com/values-hash" (toJson .Values | sha256sum | trunc 63) }}
+{{- if not (kindIs "string" .Values.githubConfigSecret) }}
+{{- $_ := set $annotations "actions.github.com/cleanup-github-secret-name" (include "gha-runner-scale-set.githubsecret" .) }}
+{{- end }}
+{{- $_ := set $annotations "actions.github.com/cleanup-manager-role-binding" (include "gha-runner-scale-set.managerRoleBindingName" .) }}
+{{- $_ := set $annotations "actions.github.com/cleanup-manager-role-name" (include "gha-runner-scale-set.managerRoleName" .) }}
+{{- if and (or (eq $containerMode.type "kubernetes") (eq $containerMode.type "kubernetes-novolume")) (not .Values.template.spec.serviceAccountName) }}
+{{- $_ := set $annotations "actions.github.com/cleanup-kubernetes-mode-role-binding-name" (include "gha-runner-scale-set.kubeModeRoleBindingName" .) }}
+{{- $_ := set $annotations "actions.github.com/cleanup-kubernetes-mode-role-name" (include "gha-runner-scale-set.kubeModeRoleName" .) }}
+{{- $_ := set $annotations "actions.github.com/cleanup-kubernetes-mode-service-account-name" (include "gha-runner-scale-set.kubeModeServiceAccountName" .) }}
+{{- end }}
+{{- if and (ne $containerMode.type "kubernetes") (ne $containerMode.type "kubernetes-novolume") (not .Values.template.spec.serviceAccountName) }}
+{{- $_ := set $annotations "actions.github.com/cleanup-no-permission-service-account-name" (include "gha-runner-scale-set.noPermissionServiceAccountName" .) }}
+{{- end }}
+apiVersion: "actions.github.com/v1alpha1"
+kind: "AutoscalingRunnerSet"
+metadata: {
+  name: {{ include "gha-runner-scale-set.scale-set-name" . | replace "_" "-" | toJson }},
+  namespace: {{ include "gha-runner-scale-set.namespace" . | toJson }},
+  labels: {{ include "gha-runner-scale-set.effective-labels" (dict "ctx" . "meta" $arsMeta "strict" true "component" "autoscaling-runner-set") }},
+  annotations: {{ $annotations | toJson }},
+}
+spec: {
+  githubConfigUrl: {{ required ".Values.githubConfigUrl is required" (trimSuffix "/" .Values.githubConfigUrl) | toJson }},
+  githubConfigSecret: {{ include "gha-runner-scale-set.githubsecret" . | toJson }},
   {{- with .Values.runnerGroup }}
-  runnerGroup: {{ . }}
+  runnerGroup: {{ . | toJson }},
   {{- end }}
   {{- with .Values.runnerScaleSetName }}
-  runnerScaleSetName: {{ . }}
+  runnerScaleSetName: {{ . | toJson }},
   {{- end }}
   {{- if and .Values.scaleSetLabels (kindIs "slice" .Values.scaleSetLabels) }}
   {{- range .Values.scaleSetLabels }}
@@ -84,208 +49,185 @@ spec:
   {{- fail "scaleSetLabels contains a label that is 256 characters or more, each label must be a non-empty string of less than 256 characters" }}
   {{- end }}
   {{- end }}
-  runnerScaleSetLabels:
-    {{- toYaml .Values.scaleSetLabels | nindent 4 }}
+  runnerScaleSetLabels: {{ .Values.scaleSetLabels | toJson }},
   {{- end }}
-
   {{- if .Values.githubServerTLS }}
-  githubServerTLS:
+  githubServerTLS: {
     {{- with .Values.githubServerTLS.certificateFrom }}
-    certificateFrom:
-      configMapKeyRef:
-        name: {{ .configMapKeyRef.name }}
-        key: {{ .configMapKeyRef.key }}
+    certificateFrom: {
+      configMapKeyRef: {
+        name: {{ .configMapKeyRef.name | toJson }},
+        key: {{ .configMapKeyRef.key | toJson }},
+      },
+    },
     {{- end }}
+  },
   {{- end }}
-
   {{- if and .Values.keyVault .Values.keyVault.type }}
-  vaultConfig:
-    type: {{ .Values.keyVault.type }}
+  vaultConfig: {
+    type: {{ .Values.keyVault.type | toJson }},
     {{- if .Values.keyVault.proxy }}
-    proxy: {{- toYaml .Values.keyVault.proxy | nindent 6 }}
+    proxy: {{ .Values.keyVault.proxy | toJson }},
     {{- end }}
     {{- if eq .Values.keyVault.type "azure_key_vault" }}
-    azureKeyVault:
-      url: {{ .Values.keyVault.azureKeyVault.url }}
-      tenantId: {{ .Values.keyVault.azureKeyVault.tenantId }}
-      clientId: {{ .Values.keyVault.azureKeyVault.clientId }}
-      certificatePath: {{ .Values.keyVault.azureKeyVault.certificatePath }}
-      secretKey: {{ .Values.keyVault.azureKeyVault.secretKey }}
+    azureKeyVault: {
+      url: {{ .Values.keyVault.azureKeyVault.url | toJson }},
+      tenantId: {{ .Values.keyVault.azureKeyVault.tenantId | toJson }},
+      clientId: {{ .Values.keyVault.azureKeyVault.clientId | toJson }},
+      certificatePath: {{ .Values.keyVault.azureKeyVault.certificatePath | toJson }},
+      secretKey: {{ .Values.keyVault.azureKeyVault.secretKey | toJson }},
+    },
     {{- else }}
     {{- fail "Unsupported keyVault type: " .Values.keyVault.type }}
     {{- end }}
+  },
   {{- end }}
-
   {{- if .Values.proxy }}
-  proxy:
+  proxy: {
     {{- if .Values.proxy.http }}
-    http:
-      url: {{ .Values.proxy.http.url }}
+    http: {
+      url: {{ .Values.proxy.http.url | toJson }},
       {{- if .Values.proxy.http.credentialSecretRef }}
-      credentialSecretRef: {{ .Values.proxy.http.credentialSecretRef }}
+      credentialSecretRef: {{ .Values.proxy.http.credentialSecretRef | toJson }},
       {{- end }}
+    },
     {{- end }}
     {{- if .Values.proxy.https }}
-    https:
-      url: {{ .Values.proxy.https.url }}
+    https: {
+      url: {{ .Values.proxy.https.url | toJson }},
       {{- if .Values.proxy.https.credentialSecretRef }}
-      credentialSecretRef: {{ .Values.proxy.https.credentialSecretRef }}
+      credentialSecretRef: {{ .Values.proxy.https.credentialSecretRef | toJson }},
       {{- end }}
+    },
     {{- end }}
     {{- if and .Values.proxy.noProxy (kindIs "slice" .Values.proxy.noProxy) }}
-    noProxy: {{ .Values.proxy.noProxy | toYaml | nindent 6}}
+    noProxy: {{ .Values.proxy.noProxy | toJson }},
     {{- end }}
+  },
   {{- end }}
-
   {{- if and (or (kindIs "int64" .Values.minRunners) (kindIs "float64" .Values.minRunners)) (or (kindIs "int64" .Values.maxRunners) (kindIs "float64" .Values.maxRunners)) }}
-    {{- if gt .Values.minRunners .Values.maxRunners }}
-      {{- fail "maxRunners has to be greater or equal to minRunners" }}
-    {{- end }}
+  {{- if gt .Values.minRunners .Values.maxRunners }}
+  {{- fail "maxRunners has to be greater or equal to minRunners" }}
   {{- end }}
-
+  {{- end }}
   {{- if or (kindIs "int64" .Values.maxRunners) (kindIs "float64" .Values.maxRunners) }}
-    {{- if lt (.Values.maxRunners | int) 0 }}
-      {{- fail "maxRunners has to be greater or equal to 0" }}
-    {{- end }}
-  maxRunners: {{ .Values.maxRunners | int }}
+  {{- if lt (.Values.maxRunners | int) 0 }}
+  {{- fail "maxRunners has to be greater or equal to 0" }}
   {{- end }}
-
+  maxRunners: {{ .Values.maxRunners | int }},
+  {{- end }}
   {{- if or (kindIs "int64" .Values.minRunners) (kindIs "float64" .Values.minRunners) }}
-    {{- if lt (.Values.minRunners | int) 0 }}
-      {{- fail "minRunners has to be greater or equal to 0" }}
-    {{- end }}
-  minRunners: {{ .Values.minRunners | int }}
+  {{- if lt (.Values.minRunners | int) 0 }}
+  {{- fail "minRunners has to be greater or equal to 0" }}
   {{- end }}
-
+  minRunners: {{ .Values.minRunners | int }},
+  {{- end }}
   {{- with .Values.listenerTemplate }}
-  listenerTemplate:
-    {{- toYaml . | nindent 4}}
+  listenerTemplate: {{ . | toJson }},
   {{- end }}
-
   {{- with .Values.listenerMetrics }}
-  listenerMetrics:
-    {{- toYaml . | nindent 4 }}
+  listenerMetrics: {{ . | toJson }},
   {{- end }}
-
   {{- with (index $resourceMeta "autoscalingListener") }}
-  autoscalingListener:
-    {{- include "gha-runner-scale-set.resourceMetaSpec" . | nindent 4 }}
+  autoscalingListener: {{ include "gha-runner-scale-set.resourceMetaSpec" . }},
   {{- end }}
-
   {{- with (index $resourceMeta "listenerServiceAccount") }}
-  listenerServiceAccountMetadata:
-    {{- include "gha-runner-scale-set.resourceMetaSpec" . | nindent 4 }}
+  listenerServiceAccountMetadata: {{ include "gha-runner-scale-set.resourceMetaSpec" . }},
   {{- end }}
-
   {{- with (index $resourceMeta "listenerRole") }}
-  listenerRoleMetadata:
-    {{- include "gha-runner-scale-set.resourceMetaSpec" . | nindent 4 }}
+  listenerRoleMetadata: {{ include "gha-runner-scale-set.resourceMetaSpec" . }},
   {{- end }}
-
   {{- with (index $resourceMeta "listenerRoleBinding") }}
-  listenerRoleBindingMetadata:
-    {{- include "gha-runner-scale-set.resourceMetaSpec" . | nindent 4 }}
+  listenerRoleBindingMetadata: {{ include "gha-runner-scale-set.resourceMetaSpec" . }},
   {{- end }}
-
   {{- with (index $resourceMeta "listenerConfigSecret") }}
-  listenerConfigSecretMetadata:
-    {{- include "gha-runner-scale-set.resourceMetaSpec" . | nindent 4 }}
+  listenerConfigSecretMetadata: {{ include "gha-runner-scale-set.resourceMetaSpec" . }},
   {{- end }}
-
   {{- with (index $resourceMeta "ephemeralRunnerSet") }}
-  ephemeralRunnerSetMetadata:
-    {{- include "gha-runner-scale-set.resourceMetaSpec" . | nindent 4 }}
+  ephemeralRunnerSetMetadata: {{ include "gha-runner-scale-set.resourceMetaSpec" . }},
   {{- end }}
-
   {{- with (index $resourceMeta "ephemeralRunner") }}
-  ephemeralRunnerMetadata:
-    {{- include "gha-runner-scale-set.resourceMetaSpec" . | nindent 4 }}
+  ephemeralRunnerMetadata: {{ include "gha-runner-scale-set.resourceMetaSpec" . }},
   {{- end }}
-
   {{- with (index $resourceMeta "ephemeralRunnerConfigSecret") }}
-  ephemeralRunnerConfigSecretMetadata:
-    {{- include "gha-runner-scale-set.resourceMetaSpec" . | nindent 4 }}
+  ephemeralRunnerConfigSecretMetadata: {{ include "gha-runner-scale-set.resourceMetaSpec" . }},
   {{- end }}
-
-  template:
+  template: {
     {{- with .Values.template.metadata }}
-    metadata:
+    metadata: {
       {{- with .labels }}
-      labels:
-        {{- toYaml . | nindent 8 }}
+      labels: {{ . | toJson }},
       {{- end }}
       {{- with .annotations }}
-      annotations:
-        {{- toYaml . | nindent 8 }}
+      annotations: {{ . | toJson }},
       {{- end }}
+    },
     {{- end }}
-    spec:
+    spec: {
       {{- range $key, $val := .Values.template.spec }}
-        {{- if and (ne $key "containers") (ne $key "volumes") (ne $key "initContainers") (ne $key "serviceAccountName") }}
-      {{ $key }}: {{ $val | toYaml | nindent 8 }}
-        {{- end }}
+      {{- if and (ne $key "containers") (ne $key "volumes") (ne $key "initContainers") (ne $key "serviceAccountName") }}
+      {{ $key }}: {{ $val | toJson }},
+      {{- end }}
       {{- end }}
       {{- if not .Values.template.spec.restartPolicy }}
-      restartPolicy: Never
+      restartPolicy: "Never",
       {{- end }}
-      {{- $containerMode := .Values.containerMode }}
       {{- if or (eq $containerMode.type "kubernetes") (eq $containerMode.type "kubernetes-novolume") }}
-      serviceAccountName: {{ default (include "gha-runner-scale-set.kubeModeServiceAccountName" .) .Values.template.spec.serviceAccountName }}
+      serviceAccountName: {{ default (include "gha-runner-scale-set.kubeModeServiceAccountName" .) .Values.template.spec.serviceAccountName | toJson }},
       {{- else }}
-      serviceAccountName: {{ default (include "gha-runner-scale-set.noPermissionServiceAccountName" .) .Values.template.spec.serviceAccountName }}
+      serviceAccountName: {{ default (include "gha-runner-scale-set.noPermissionServiceAccountName" .) .Values.template.spec.serviceAccountName | toJson }},
       {{- end }}
       {{- if or .Values.template.spec.initContainers (eq $containerMode.type "dind") }}
-      initContainers:
+      initContainers: [
         {{- if eq $containerMode.type "dind" }}
-      - name: init-dind-externals
-          {{- include "gha-runner-scale-set.dind-init-container" . | nindent 8 }}
-          {{- if (ge (.Capabilities.KubeVersion.Minor | int) 29) }}
-      - name: dind
-          {{- include "gha-runner-scale-set.dind-container" . | nindent 8 }}
-          {{- end }}
+        {{ include "gha-runner-scale-set.dind-init-container" . }},
+        {{- if (ge (.Capabilities.KubeVersion.Minor | int) 29) }}
+        {{ include "gha-runner-scale-set.dind-container" . }},
         {{- end }}
-        {{- with .Values.template.spec.initContainers }}
-      {{- toYaml . | nindent 6 }}
         {{- end }}
+        {{- range .Values.template.spec.initContainers }}
+        {{ . | toJson }},
+        {{- end }}
+      ],
       {{- end }}
-      containers:
-      {{- if eq $containerMode.type "dind" }}
-      - name: runner
-        {{- include "gha-runner-scale-set.dind-runner-container" . | nindent 8 }}
+      containers: [
+        {{- if eq $containerMode.type "dind" }}
+        {{ include "gha-runner-scale-set.dind-runner-container" . }},
         {{- if not (ge (.Capabilities.KubeVersion.Minor | int) 29) }}
-      - name: dind
-        {{- include "gha-runner-scale-set.dind-container" . | nindent 8 }}
+        {{ include "gha-runner-scale-set.dind-container" . }},
         {{- end }}
-      {{- include "gha-runner-scale-set.non-runner-non-dind-containers" . | nindent 6 }}
-      {{- else if eq $containerMode.type "kubernetes" }}
-      - name: runner
-        {{- include "gha-runner-scale-set.kubernetes-mode-runner-container" . | nindent 8 }}
-      {{- include "gha-runner-scale-set.non-runner-containers" . | nindent 6 }}
-      {{- else if eq $containerMode.type "kubernetes-novolume" }}
-      - name: runner
-        {{- include "gha-runner-scale-set.kubernetes-novolume-mode-runner-container" . | nindent 8 }}
-      {{- include "gha-runner-scale-set.non-runner-containers" . | nindent 6 }}
-      {{- else }}
-      {{- include "gha-runner-scale-set.default-mode-runner-containers" . | nindent 6 }}
-      {{- end }}
-      {{- $tlsConfig := (default (dict) .Values.githubServerTLS) }}
+        {{- include "gha-runner-scale-set.non-runner-non-dind-containers" . | nindent 8 }}
+        {{- else if eq $containerMode.type "kubernetes" }}
+        {{ include "gha-runner-scale-set.kubernetes-mode-runner-container" . }},
+        {{- include "gha-runner-scale-set.non-runner-containers" . | nindent 8 }}
+        {{- else if eq $containerMode.type "kubernetes-novolume" }}
+        {{ include "gha-runner-scale-set.kubernetes-novolume-mode-runner-container" . }},
+        {{- include "gha-runner-scale-set.non-runner-containers" . | nindent 8 }}
+        {{- else }}
+        {{- include "gha-runner-scale-set.default-mode-runner-containers" . | nindent 8 }}
+        {{- end }}
+      ],
       {{- if or .Values.template.spec.volumes (eq $containerMode.type "dind") (eq $containerMode.type "kubernetes") $tlsConfig.runnerMountPath }}
-      volumes:
+      volumes: [
         {{- if $tlsConfig.runnerMountPath }}
-          {{- include "gha-runner-scale-set.tls-volume" $tlsConfig | nindent 6 }}
+        {{- include "gha-runner-scale-set.tls-volume" $tlsConfig | nindent 8 }}
         {{- end }}
         {{- if eq $containerMode.type "dind" }}
-          {{- include "gha-runner-scale-set.dind-volume" . | nindent 6 }}
-          {{- include "gha-runner-scale-set.dind-work-volume" . | nindent 6 }}
-          {{- include "gha-runner-scale-set.non-work-volumes" . | nindent 6 }}
+        {{- include "gha-runner-scale-set.dind-volume" . | nindent 8 }}
+        {{- include "gha-runner-scale-set.dind-work-volume" . | nindent 8 }}
+        {{- include "gha-runner-scale-set.non-work-volumes" . | nindent 8 }}
         {{- else if eq $containerMode.type "kubernetes" }}
-          {{- include "gha-runner-scale-set.kubernetes-mode-work-volume" . | nindent 6 }}
-          {{- include "gha-runner-scale-set.non-work-volumes" . | nindent 6 }}
+        {{- include "gha-runner-scale-set.kubernetes-mode-work-volume" . | nindent 8 }}
+        {{- include "gha-runner-scale-set.non-work-volumes" . | nindent 8 }}
         {{- else }}
-          {{- with .Values.template.spec.volumes }}
-        {{- toYaml . | nindent 6 }}
-          {{- end }}
+        {{- range .Values.template.spec.volumes }}
+        {{ . | toJson }},
         {{- end }}
+        {{- end }}
+      ],
       {{- else if eq $containerMode.type "kubernetes-novolume" }}
-      volumes: []
+      volumes: [],
       {{- end }}
+    },
+  },
+}

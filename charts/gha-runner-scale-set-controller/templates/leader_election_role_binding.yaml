@@ -1,15 +1,18 @@
 {{- if gt (int (default 1 .Values.replicaCount)) 1 }}
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: {{ include "gha-runner-scale-set-controller.leaderElectionRoleBinding" . }}
-  namespace: {{ include "gha-runner-scale-set-controller.namespace" . }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: {{ include "gha-runner-scale-set-controller.leaderElectionRoleName" . }}
-subjects:
-- kind: ServiceAccount
-  name: {{ include "gha-runner-scale-set-controller.serviceAccountName" . }}
-  namespace: {{ include "gha-runner-scale-set-controller.namespace" . }}
+apiVersion: "rbac.authorization.k8s.io/v1"
+kind: "RoleBinding"
+metadata: {
+  name: {{ include "gha-runner-scale-set-controller.leaderElectionRoleBinding" . | toJson }},
+  namespace: {{ include "gha-runner-scale-set-controller.namespace" . | toJson }},
+}
+roleRef: {
+  apiGroup: "rbac.authorization.k8s.io",
+  kind: "Role",
+  name: {{ include "gha-runner-scale-set-controller.leaderElectionRoleName" . | toJson }},
+}
+subjects: [{
+  kind: "ServiceAccount",
+  name: {{ include "gha-runner-scale-set-controller.serviceAccountName" . | toJson }},
+  namespace: {{ include "gha-runner-scale-set-controller.namespace" . | toJson }},
+}]
 {{- end }}

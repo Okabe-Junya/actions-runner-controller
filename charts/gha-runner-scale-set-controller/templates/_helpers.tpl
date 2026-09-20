@@ -48,28 +48,34 @@ Create chart name and version as used by the chart label.
 {{- end }}
 
 {{/*
-Common labels
+Common labels, as a JSON object.
 */}}
 {{- define "gha-runner-scale-set-controller.labels" -}}
-helm.sh/chart: {{ include "gha-runner-scale-set-controller.chart" . }}
-{{ include "gha-runner-scale-set-controller.selectorLabels" . }}
+{{- $labels := dict
+      "helm.sh/chart" (include "gha-runner-scale-set-controller.chart" .)
+      "app.kubernetes.io/part-of" "gha-rs-controller"
+      "app.kubernetes.io/managed-by" .Release.Service }}
+{{- range $k, $v := include "gha-runner-scale-set-controller.selectorLabels" . | fromJson }}
+{{- $_ := set $labels $k $v }}
+{{- end }}
 {{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- $_ := set $labels "app.kubernetes.io/version" (.Chart.AppVersion | toString) }}
 {{- end }}
-app.kubernetes.io/part-of: gha-rs-controller
-app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- range $k, $v := .Values.labels }}
-{{ $k }}: {{ $v | quote }}
+{{- $_ := set $labels $k ($v | toString) }}
 {{- end }}
+{{- $labels | toJson }}
 {{- end }}
 
 {{/*
-Selector labels
+Selector labels, as a JSON object.
 */}}
 {{- define "gha-runner-scale-set-controller.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "gha-runner-scale-set-controller.name" . }}
-app.kubernetes.io/namespace: {{ include "gha-runner-scale-set-controller.namespace" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
+{{- dict
+      "app.kubernetes.io/name" (include "gha-runner-scale-set-controller.name" .)
+      "app.kubernetes.io/namespace" (include "gha-runner-scale-set-controller.namespace" .)
+      "app.kubernetes.io/instance" .Release.Name
+  | toJson }}
 {{- end }}
 
 {{/*
